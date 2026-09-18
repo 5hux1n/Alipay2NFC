@@ -1,0 +1,12 @@
+#!/bin/sh
+# 不修改任何 App、不改 Info.plist、不需要重签名。
+echo ""
+echo "=============================================="
+echo " Alipay NFC Redirect 已安装"
+echo ""
+echo " 打开官方支付宝，贴碰一碰贴纸即可自动跳转到"
+echo " 多开客户端的付款页。无需其他操作。"
+echo "=============================================="
+echo ""
+if command -v uicache >/dev/null 2>&1; then uicache -a >/dev/null 2>&1 || true; fi
+exit 0

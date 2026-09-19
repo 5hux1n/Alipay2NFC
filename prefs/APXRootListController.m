@@ -106,16 +106,6 @@ static NSArray *APXDetectClones(NSString **diag) {
         [out addObject:@{@"bid": b, @"name": ([n isKindOfClass:[NSString class]] && n.length) ? n : b}];
     }
 
-    /* 兜底：用 tweak 在支付宝进程内写入的清单 */
-    if (out.count == 0) {
-        id saved = APXPref(APX_KEY_CLONES);
-        if ([saved isKindOfClass:[NSArray class]]) {
-            for (NSDictionary *c in saved) {
-                if ([c isKindOfClass:[NSDictionary class]] && [c[@"bid"] length]) [out addObject:c];
-            }
-            if (out.count) how = [how stringByAppendingString:@"+配置清单"];
-        }
-    }
 
     if (diag) {
         *diag = [NSString stringWithFormat:@"检测方式 %@ ｜ 扫描 %lu 个 App ｜ 命中 %lu 个多开包",

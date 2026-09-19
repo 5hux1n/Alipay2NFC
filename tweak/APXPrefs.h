@@ -10,7 +10,5 @@
 #define APX_KEY_ASK      @"AskBeforeJump"        /* 跳转前询问，默认 NO */
 #define APX_KEY_TARGET   @"TargetCloneBundleID"  /* 指定多开包；空 = 自动 */
 #define APX_KEY_DEBUG    @"Debug"                /* 详细日志，默认 NO */
-/* tweak 在支付宝进程内枚举到的多开包清单：[{bid,name}]，供设置面板展示 */
-#define APX_KEY_CLONES   @"DetectedClones"
 
 #endif

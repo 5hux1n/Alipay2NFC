@@ -35,7 +35,21 @@
 #import <objc/runtime.h>
 #import <objc/message.h>
 #import <notify.h>
+#import <os/lock.h>
 #import "APXPrefs.h"
+
+/* roothide / rootless 的 jbroot 解析：老版 Theos 没有 roothide.h，用 __has_include 兜底 */
+#if __has_include(<roothide.h>)
+#include <roothide.h>
+#define APX_JBROOT(p) jbroot(p)
+#else
+#define APX_JBROOT(p) ([@"/var/jb" stringByAppendingPathComponent:(p)])
+#endif
+
+static inline NSString *APXJBP(NSString *path) {
+    NSString *abs = [path hasPrefix:@"/"] ? path : [@"/" stringByAppendingString:path];
+    return APX_JBROOT(abs);
+}
 
 #define OFFICIAL_BID   @"com.alipay.iphoneclient"
 #define TAP_MARK       @"ALIPAYNFC1:"      /* 碰一碰载荷 */
@@ -81,30 +95,56 @@ static void APXInvalidateCloneCache(void);
 /* ─────────────── 配置（支持热更新）─────────────── */
 
 /*
- * 读配置。两条通道都试：
- *   1) CFPreferences —— 走 cfprefsd，是 tweak 的标准做法
- *   2) 直接读文件   —— 部分越狱/沙盒组合下 cfprefsd 不给读
- * 任一成功即可。
+ * 读配置。
+ *
+ * ── 为什么直接读 plist 文件，而不是 CFPreferencesCopyAppValue ──
+ * CFPreferences 走 cfprefsd 的 XPC。在 App 早期初始化阶段调用时，
+ * cfprefsd 可能正在等同一把锁，导致递归锁死并被 watchdog 杀掉。
+ * 直接读文件是零 IPC 的，社区通用做法。
+ *
+ * 路径两条都试：真实路径 + jbroot 前缀（roothide / rootless）。
  */
-static id APXPrefRaw(NSString *key) {
-    CFStringRef k = (__bridge CFStringRef)key;
-    CFStringRef d = (__bridge CFStringRef)APX_DOMAIN;
+static NSDictionary *gPrefs = nil;
+static os_unfair_lock gPrefsLock = OS_UNFAIR_LOCK_INIT;
 
-    CFPropertyListRef v = CFPreferencesCopyAppValue(k, d);
-    if (v) return CFBridgingRelease(v);
+static void APXInvalidateCloneCache(void);   /* 前置声明 */
 
-    NSDictionary *f = [NSDictionary dictionaryWithContentsOfFile:
-                       @"/var/mobile/Library/Preferences/" APX_DOMAIN ".plist"];
-    return f[key];
+static void APXInvalidatePrefs(void) {
+    os_unfair_lock_lock(&gPrefsLock);
+    gPrefs = nil;
+    os_unfair_lock_unlock(&gPrefsLock);
+    APXInvalidateCloneCache();
+}
+
+static NSDictionary *APXAllPrefs(void) {
+    os_unfair_lock_lock(&gPrefsLock);
+    NSDictionary *cached = gPrefs;
+    os_unfair_lock_unlock(&gPrefsLock);
+    if (cached) return cached;
+
+    NSString *rel = [NSString stringWithFormat:@"var/mobile/Library/Preferences/%@.plist", APX_DOMAIN];
+    NSDictionary *p = [NSDictionary dictionaryWithContentsOfFile:
+                       [@"/" stringByAppendingPathComponent:rel]];
+    if (![p isKindOfClass:[NSDictionary class]])
+        p = [NSDictionary dictionaryWithContentsOfFile:APXJBP(rel)];
+    if (![p isKindOfClass:[NSDictionary class]]) p = @{};
+
+    APXLog(@"读到配置: %@", p);
+
+    os_unfair_lock_lock(&gPrefsLock);
+    if (!gPrefs) gPrefs = p;
+    NSDictionary *r = gPrefs;
+    os_unfair_lock_unlock(&gPrefsLock);
+    return r;
 }
 
 static BOOL APXPrefBool(NSString *key, BOOL dflt) {
-    id v = APXPrefRaw(key);
+    id v = APXAllPrefs()[key];
     return v ? [v boolValue] : dflt;
 }
 
 static NSString *APXPrefString(NSString *key) {
-    id v = APXPrefRaw(key);
+    id v = APXAllPrefs()[key];
     return [v isKindOfClass:[NSString class]] ? v : nil;
 }
 
@@ -112,7 +152,7 @@ static NSString *APXPrefString(NSString *key) {
 static void APXPrefsChanged(CFNotificationCenterRef c, void *obs, CFStringRef name,
                             const void *obj, CFDictionaryRef info) {
     APXLog(@"收到设置变更通知，热更新");
-    APXInvalidateCloneCache();
+    APXInvalidatePrefs();
 }
 
 static void APXWatchPrefs(void) {
@@ -198,24 +238,6 @@ static NSString *APXCloneBID(void) {
             }
             APXLog(@"枚举 %lu 个 App，多开包 = %@", (unsigned long)all.count, gCloneCache);
 
-            /* 把检测到的多开包清单写进配置，供设置面板展示
-             * （设置面板在 Settings 进程里，枚举能力不一定可用） */
-            NSMutableArray *list = [NSMutableArray array];
-            for (id p in all) {
-                NSString *b = ((id (*)(id, SEL))objc_msgSend)(p, sel_registerName("bundleIdentifier"));
-                if (![b isKindOfClass:[NSString class]]) continue;
-                if ([b isEqualToString:OFFICIAL_BID] || ![b hasPrefix:OFFICIAL_BID]) continue;
-                NSString *n = nil;
-                @try { n = ((id (*)(id, SEL))objc_msgSend)(p, sel_registerName("localizedName")); } @catch (__unused NSException *e) {}
-                [list addObject:@{@"bid": b, @"name": ([n isKindOfClass:[NSString class]] && n.length) ? n : b}];
-            }
-            if (list.count) {
-                CFPreferencesSetAppValue((__bridge CFStringRef)APX_KEY_CLONES,
-                                         (__bridge CFPropertyListRef)list,
-                                         (__bridge CFStringRef)APX_DOMAIN);
-                CFPreferencesAppSynchronize((__bridge CFStringRef)APX_DOMAIN);
-                APXLog(@"已写入 %lu 个多开包到设置面板", (unsigned long)list.count);
-            }
         }
     } @catch (__unused NSException *e) {}
 

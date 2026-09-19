@@ -1,6 +1,6 @@
 Package: im.mjh.alipay2nfc
 Name: Alipay2NFC
-Version: 3.4.0
+Version: 3.4.1
 Architecture: iphoneos-arm64
 Description: 把支付宝「碰一碰」重定向到多开/克隆版支付宝。
  在官方支付宝内接管 Universal Link / App Clip 投递，再把这一次碰一碰交给多开客户端。

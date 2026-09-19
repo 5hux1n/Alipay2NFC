@@ -1,17 +1,15 @@
 Package: im.mjh.alipay2nfc
 Name: Alipay2NFC
-Version: 3.1.0
+Version: 3.4.0
 Architecture: iphoneos-arm64
-Description: Redirect Alipay "Tap-to-Pay" (碰一碰) NFC taps to a second/multi-instance Alipay client.
- Hooks the Universal Link / App Clip delivery inside the OFFICIAL Alipay
- (which keeps its App Store signature and entitlements, required for iOS to
- keep delivering the URL), then hands the tap over to the clone via
- UIPasteboard + openApplicationWithBundleID:. The clone is found at runtime
- through enumerateApplicationsOfType:block:, so any bundle id works.
- No Info.plist modification, no re-signing.
- Pure Objective-C runtime hooks (no CydiaSubstrate): works on
- rootful / rootless / roothide and on both arm64 and arm64e.
-Maintainer: junhong
-Author: junhong
+Description: 把支付宝「碰一碰」重定向到多开/克隆版支付宝。
+ 在官方支付宝内接管 Universal Link / App Clip 投递，再把这一次碰一碰交给多开客户端。
+ 设置里可开关总开关（想用官方账号付款时直接关掉，无需卸载或在 Choicy 屏蔽）、
+ 开启跳转前询问、以及在多个多开包之间选择目标。改动即时生效，无需注销。
+ 不修改任何 App、不需要重签名。纯 Objective-C 运行时实现，不含 CydiaSubstrate。
+Maintainer: Junhong
+Author: Junhong
 Section: Tweaks
-Depends: firmware (>= 14.0)
+Depends: firmware (>= 14.0), preferenceloader
+Replaces: com.yourname.alipaynfcredirect
+Conflicts: com.yourname.alipaynfcredirect

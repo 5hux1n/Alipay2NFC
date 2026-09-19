@@ -1,0 +1,1 @@
+{ entry = { bundle = "Alipay2NFCPrefs"; cell = PSLinkCell; icon = "icon@2x.png"; isController = 1; label = "碰一碰重定向"; }; }

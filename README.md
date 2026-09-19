@@ -24,11 +24,22 @@ Redirect Alipay's 碰一碰 (NFC tap-to-pay) to the Alipay client of your choice
 
 ## 使用
 
-1. 从下方任一方式安装
-2. 打开官方支付宝
-3. 贴商户的碰一碰贴纸
+1. 安装后打开官方支付宝
+2. 贴商户的碰一碰贴纸 → 自动进入多开客户端的碰一碰付款页
 
-多开客户端会在后台由插件唤起，无需提前打开它，也不用做任何配置。
+多开客户端会被自动识别并唤起，**无需提前打开它**。
+
+## 设置
+
+安装后在 **设置 → 碰一碰重定向** 里：
+
+| 选项 | 作用 |
+|---|---|
+| **启用碰一碰重定向** | 总开关。**想用官方账号付款时直接关掉即可**，不用卸载插件，也不用去 Choicy 里屏蔽 |
+| **跳转前询问** | 每次贴纸先弹窗，当场选「跳转到多开客户端」还是「用官方支付宝支付」 |
+| **目标多开支付宝** | 检测到多个多开客户端时，选择要跳转的那个；未选择时用第一个 |
+
+改动**即时生效**，不需要注销或重启。
 
 ## 安装
 
@@ -46,7 +57,7 @@ Redirect Alipay's 碰一碰 (NFC tap-to-pay) to the Alipay client of your choice
 | `..._iphoneos-arm64e.deb` | roothide |
 
 ```bash
-dpkg -i im.mjh.alipay2nfc_3.1.0_iphoneos-arm64e.deb
+dpkg -i im.mjh.alipay2nfc_3.4.0_iphoneos-arm64e.deb
 ```
 
 ## 兼容性
@@ -67,13 +78,26 @@ dpkg -i im.mjh.alipay2nfc_3.1.0_iphoneos-arm64e.deb
 需要 [Theos](https://theos.dev)。
 
 ```bash
-cd tweak
-
 # rootless
-make package THEOS_PACKAGE_SCHEME=rootless
+make package THEOS_PACKAGE_SCHEME=rootless \
+     SYSROOT=$THEOS/sdks/iPhoneOS16.5.sdk
 
 # roothide（需要 roothide 版 Theos）
-make package THEOS_PACKAGE_SCHEME=roothide
+make package THEOS_PACKAGE_SCHEME=roothide \
+     SYSROOT=$THEOS/sdks/iPhoneOS16.5.sdk
+```
+
+两点注意：
+
+- **必须显式指定 `SYSROOT`**：设置面板依赖私有框架 `Preferences`，系统 Xcode 的 SDK 里没有，会报 `framework 'Preferences' not found`
+- **路径不要含非 ASCII 字符**（中文等），GNU make 处理不了
+
+## 结构
+
+```
+tweak/      插件本体（钩子 + 配置读取 + 热更新）
+prefs/      设置面板（PreferenceBundle）
+dist/       已构建的 deb
 ```
 
 ## 许可
@@ -107,12 +131,22 @@ Tap sticker → official client receives link → tweak takes over → your clie
 
 ## Usage
 
-1. Install by either method below
-2. Open the official Alipay
-3. Tap the merchant's 碰一碰 sticker
+1. Install, then open the official Alipay
+2. Tap the merchant's 碰一碰 sticker → your second client opens its tap-to-pay page
 
-The second client is brought up in the background by the tweak — no need to open it first, and no
-configuration is required.
+The second client is discovered and launched automatically — **you never need to open it first**.
+
+## Settings
+
+Under **Settings → 碰一碰重定向** (Alipay2NFC):
+
+| Option | Effect |
+|---|---|
+| **Enable redirection** | Master switch. **Turn it off to pay with your official account** — no need to uninstall or block the tweak in Choicy |
+| **Ask before jumping** | Show a dialog on every tap to choose between your second client and the official app |
+| **Target client** | Pick which clone to use when several exist; defaults to the first |
+
+Changes take effect **immediately** — no respring or reboot.
 
 ## Install
 
@@ -126,7 +160,7 @@ configuration is required.
 | `..._iphoneos-arm64e.deb` | roothide |
 
 ```bash
-dpkg -i im.mjh.alipay2nfc_3.1.0_iphoneos-arm64e.deb
+dpkg -i im.mjh.alipay2nfc_3.4.0_iphoneos-arm64e.deb
 ```
 
 ## Compatibility
@@ -148,14 +182,20 @@ moment.
 Requires [Theos](https://theos.dev).
 
 ```bash
-cd tweak
-
 # rootless
-make package THEOS_PACKAGE_SCHEME=rootless
+make package THEOS_PACKAGE_SCHEME=rootless \
+     SYSROOT=$THEOS/sdks/iPhoneOS16.5.sdk
 
 # roothide (needs a roothide-flavoured Theos)
-make package THEOS_PACKAGE_SCHEME=roothide
+make package THEOS_PACKAGE_SCHEME=roothide \
+     SYSROOT=$THEOS/sdks/iPhoneOS16.5.sdk
 ```
+
+Two notes:
+
+- **`SYSROOT` is required**: the settings panel links the private `Preferences` framework, which the
+  stock Xcode SDK lacks (otherwise: `framework 'Preferences' not found`)
+- **Keep the checkout path ASCII-only** — GNU make cannot handle non-ASCII paths
 
 ## License
 

@@ -90,7 +90,6 @@ static void APXSetPasteboard(NSString *s) {
 
 /* 前置声明 */
 static NSString *APXCloneBID(void);
-static void APXInvalidateCloneCache(void);
 
 /* ─────────────── 配置（支持热更新）─────────────── */
 
@@ -104,38 +103,27 @@ static void APXInvalidateCloneCache(void);
  *
  * 路径两条都试：真实路径 + jbroot 前缀（roothide / rootless）。
  */
-static NSDictionary *gPrefs = nil;
-static os_unfair_lock gPrefsLock = OS_UNFAIR_LOCK_INIT;
-
-static void APXInvalidateCloneCache(void);   /* 前置声明 */
-
-static void APXInvalidatePrefs(void) {
-    os_unfair_lock_lock(&gPrefsLock);
-    gPrefs = nil;
-    os_unfair_lock_unlock(&gPrefsLock);
-    APXInvalidateCloneCache();
-}
-
+/*
+ * 读配置。
+ *
+ * 直接读 plist 文件，每次现读，不做缓存 —— 碰一碰是低频操作，文件读取极便宜，
+ * 而缓存会让「改完设置立即生效」依赖通知链路，任何一环不可靠就退化成要重启。
+ *
+ * 为什么不调 CFPreferencesCopyAppValue：它走 cfprefsd 的 XPC，
+ * 在 App 早期初始化阶段调用会与 cfprefsd 争同一把锁导致死锁（watchdog 杀进程）。
+ *
+ * 路径两条都试：真实路径 + jbroot 前缀（roothide / rootless）。
+ */
 static NSDictionary *APXAllPrefs(void) {
-    os_unfair_lock_lock(&gPrefsLock);
-    NSDictionary *cached = gPrefs;
-    os_unfair_lock_unlock(&gPrefsLock);
-    if (cached) return cached;
+    static NSString *rel = nil;
+    if (!rel) rel = [NSString stringWithFormat:@"var/mobile/Library/Preferences/%@.plist", APX_DOMAIN];
 
-    NSString *rel = [NSString stringWithFormat:@"var/mobile/Library/Preferences/%@.plist", APX_DOMAIN];
     NSDictionary *p = [NSDictionary dictionaryWithContentsOfFile:
                        [@"/" stringByAppendingPathComponent:rel]];
     if (![p isKindOfClass:[NSDictionary class]])
         p = [NSDictionary dictionaryWithContentsOfFile:APXJBP(rel)];
     if (![p isKindOfClass:[NSDictionary class]]) p = @{};
-
-    APXLog(@"读到配置: %@", p);
-
-    os_unfair_lock_lock(&gPrefsLock);
-    if (!gPrefs) gPrefs = p;
-    NSDictionary *r = gPrefs;
-    os_unfair_lock_unlock(&gPrefsLock);
-    return r;
+    return p;
 }
 
 static BOOL APXPrefBool(NSString *key, BOOL dflt) {
@@ -148,34 +136,19 @@ static NSString *APXPrefString(NSString *key) {
     return [v isKindOfClass:[NSString class]] ? v : nil;
 }
 
-/* 配置变了：清掉缓存的目标多开包，下次直接用新值 */
-static void APXPrefsChanged(CFNotificationCenterRef c, void *obs, CFStringRef name,
-                            const void *obj, CFDictionaryRef info) {
-    APXLog(@"收到设置变更通知，热更新");
-    APXInvalidatePrefs();
-}
-
-static void APXWatchPrefs(void) {
-    CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(),
-                                    NULL, APXPrefsChanged,
-                                    CFSTR(APX_NOTIFY_NAME), NULL,
-                                    CFNotificationSuspensionBehaviorDeliverImmediately);
-}
-
 /* ─────────────── 跳转前询问 ─────────────── */
 
 static void APXForward(NSURL *u, NSString *clone);
 
-static void APXAskUser(NSURL *u) {
+static void APXAskUser(NSURL *u, NSString *clone) {
     dispatch_async(dispatch_get_main_queue(), ^{
         UIApplication *app = [UIApplication sharedApplication];
         UIWindow *win = app.keyWindow;
         if (!win) {
             for (UIWindow *w in app.windows) { if (w.isKeyWindow) { win = w; break; } }
         }
-        if (!win) { APXForward(u, APXCloneBID()); return; }   /* 没窗口就别问了，直接跳 */
+        if (!win) { APXForward(u, clone); return; }   /* 没窗口就别问了，直接跳 */
 
-        NSString *clone = APXCloneBID();
         UIAlertController *a = [UIAlertController alertControllerWithTitle:@"碰一碰"
                                                                   message:@"这次碰一碰要跳到多开客户端吗？"
                                                            preferredStyle:UIAlertControllerStyleAlert];
@@ -209,8 +182,6 @@ static BOOL APXIsTapURL(NSURL *u) {
  * 与 allApplications 在沙盒里都返回 0）。
  */
 static NSString *gCloneCache = nil;
-
-static void APXInvalidateCloneCache(void) { gCloneCache = nil; }
 
 static NSString *APXCloneBID(void) {
     /* 用户指定优先 */
@@ -270,27 +241,46 @@ static BOOL APXShouldHandle(NSURL *u) {
     return YES;
 }
 
-static void APXTryForward(NSURL *u) {
-    if (!APXIsOfficial()) return;
-    if (!APXPrefBool(APX_KEY_ENABLED, YES)) return;   /* 总开关：关掉就用官方支付 */
-    if (!APXIsTapURL(u)) return;
-    if (!APXShouldHandle(u)) return;
+/*
+ * 处理一次碰一碰。
+ * 返回 YES 表示已被我们接管 —— 调用方要把 URL 置空，官方就不会再处理它。
+ *
+ * 两种模式：
+ *   直接跳转：接管，官方不进付款页，直接转给多开客户端
+ *   跳转前询问：**不接管**，让官方正常进入付款页；等界面起来再弹窗。
+ *              选「跳转」才转给多开客户端，选「用官方」就直接留在已经打开的付款页
+ *              —— 这样"不跳转"也能正常付款。
+ */
+static BOOL APXTryHandle(NSURL *u) {
+    if (!APXIsOfficial()) return NO;
+    if (!APXPrefBool(APX_KEY_ENABLED, YES)) return NO;   /* 总开关：关掉就完全走官方 */
+    if (!APXIsTapURL(u)) return NO;
+    if (!APXShouldHandle(u)) return NO;
 
-    if (APXPrefBool(APX_KEY_ASK, NO)) APXAskUser(u);
-    else                              APXForward(u, APXCloneBID());
+    NSString *clone = APXCloneBID();
+
+    if (APXPrefBool(APX_KEY_ASK, NO)) {
+        APXLog(@"询问模式：先让官方进付款页，稍后弹窗");
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.2 * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{ APXAskUser(u, clone); });
+        return NO;
+    }
+
+    APXForward(u, clone);
+    return YES;
 }
 
 /* 入口 1：系统写入时 */
 static void APXHookedSetWebpageURL(id self, SEL _cmd, NSURL *u) {
-    APXTryForward(u);
-    if (gSetWebpageURL) ((void (*)(id, SEL, NSURL *))gSetWebpageURL)(self, _cmd, u);
+    BOOL taken = APXTryHandle(u);
+    if (gSetWebpageURL) ((void (*)(id, SEL, NSURL *))gSetWebpageURL)(self, _cmd, taken ? nil : u);
 }
 
 /* 入口 2：App 读取时（冷启动走这条） */
 static NSURL *APXHookedWebpageURL(id self, SEL _cmd) {
     NSURL *u = gWebpageURL ? ((NSURL *(*)(id, SEL))gWebpageURL)(self, _cmd) : nil;
-    APXTryForward(u);
-    return u;
+    BOOL taken = APXTryHandle(u);
+    return taken ? nil : u;
 }
 
 /* ─────────────── 多开包：接收 ─────────────── */
@@ -349,7 +339,6 @@ static void APXInit(void) {
         APXLog(@"加载到 %@", [NSBundle mainBundle].bundleIdentifier);
 
         if (APXIsOfficial()) {
-            APXWatchPrefs();
             Class a = objc_getClass("NSUserActivity");
             APXHook(a, "setWebpageURL:", (IMP)APXHookedSetWebpageURL, &gSetWebpageURL);
             APXHook(a, "webpageURL",     (IMP)APXHookedWebpageURL,    &gWebpageURL);

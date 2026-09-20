@@ -36,7 +36,7 @@ Redirect Alipay's 碰一碰 (NFC tap-to-pay) to the Alipay client of your choice
 | 选项 | 作用 |
 |---|---|
 | **启用碰一碰重定向** | 总开关。**想用官方账号付款时直接关掉即可**，不用卸载插件，也不用去 Choicy 里屏蔽 |
-| **跳转前询问** | 每次贴纸先弹窗，当场选「跳转到多开客户端」还是「用官方支付宝支付」 |
+| **跳转前询问** | 每次贴纸先进入官方付款页，再弹窗让你选「跳转到多开客户端」还是留在官方 —— 选留在官方也能正常付款 |
 | **目标多开支付宝** | 检测到多个多开客户端时，选择要跳转的那个；未选择时用第一个 |
 
 改动**即时生效**，不需要注销或重启。
@@ -57,7 +57,7 @@ Redirect Alipay's 碰一碰 (NFC tap-to-pay) to the Alipay client of your choice
 | `..._iphoneos-arm64e.deb` | roothide |
 
 ```bash
-dpkg -i im.mjh.alipay2nfc_3.4.0_iphoneos-arm64e.deb
+dpkg -i im.mjh.alipay2nfc_3.5.0_iphoneos-arm64e.deb
 ```
 
 ## 兼容性
@@ -143,7 +143,7 @@ Under **Settings → 碰一碰重定向** (Alipay2NFC):
 | Option | Effect |
 |---|---|
 | **Enable redirection** | Master switch. **Turn it off to pay with your official account** — no need to uninstall or block the tweak in Choicy |
-| **Ask before jumping** | Show a dialog on every tap to choose between your second client and the official app |
+| **Ask before jumping** | Open the official payment page first, then ask whether to hand over to your second client — declining still lets you pay with the official account |
 | **Target client** | Pick which clone to use when several exist; defaults to the first |
 
 Changes take effect **immediately** — no respring or reboot.
@@ -160,7 +160,7 @@ Changes take effect **immediately** — no respring or reboot.
 | `..._iphoneos-arm64e.deb` | roothide |
 
 ```bash
-dpkg -i im.mjh.alipay2nfc_3.4.0_iphoneos-arm64e.deb
+dpkg -i im.mjh.alipay2nfc_3.5.0_iphoneos-arm64e.deb
 ```
 
 ## Compatibility
